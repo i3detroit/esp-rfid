@@ -13,6 +13,84 @@ void ICACHE_FLASH_ATTR openDoor()
 	ws.textAll("{\"command\":\"giveAccess\"}");
 }
 
+bool ICACHE_FLASH_ATTR isPinOK(JsonObject &json)
+{
+	String PIN = "0000";
+	String incomingPin = "    ";
+	PIN = json["pin"].as<String>();
+	if (!PIN.isEmpty())
+	{
+#ifdef DEBUG
+		Serial.print(" waiting for PIN...[");
+		Serial.print(PIN);
+		Serial.println("]");
+#endif
+		unsigned long code = 255;
+		for (uint8_t idx = 0; idx < 4; ++idx)
+		{
+			// spin until there is data
+			while (!wg.available())
+			{
+				delay(50);
+			}
+#ifdef DEBUG
+			Serial.println();
+#endif
+			code = wg.getCode();
+			if (code == 13)
+			{
+#ifdef DEBUG
+				Serial.println(" ENT pressed, checking PIN");
+#endif
+				break;
+			}
+			else if (code == 27)
+			{
+// ESC pressed, fail out
+#ifdef DEBUG
+				Serial.println(" ESC pressed, stopping");
+#endif
+				return false;
+			}
+			else
+			{
+				incomingPin.setCharAt(idx, (char)(code + '0'));
+#ifdef DEBUG
+				Serial.print("\tcode: ");
+				Serial.print(code, DEC);
+				Serial.print(": ");
+				Serial.println(incomingPin);
+#endif
+				ESP.wdtFeed();
+			}
+		}
+		if (PIN.equals(incomingPin))
+		{
+#ifdef DEBUG
+			Serial.print(" Correct pin! ");
+			Serial.print(PIN);
+			Serial.print("=");
+			Serial.println(incomingPin);
+#endif
+			return true;
+		}
+		else
+		{
+#ifdef DEBUG
+			Serial.print(" Wrong pin! ");
+			Serial.print(PIN);
+			Serial.print("!=");
+			Serial.println(incomingPin);
+#endif
+			return false;
+		}
+	}
+	else
+	{
+		return true;
+	}
+}
+
 void ICACHE_FLASH_ATTR processUser(File f, String uid, String type)
 {
 	UserType AccType = Disabled;
@@ -24,7 +102,7 @@ void ICACHE_FLASH_ATTR processUser(File f, String uid, String type)
 	if (json.success())
 	{
 		String username = json["user"];
-		int temp =  json["acctype"];
+		int temp = json["acctype"];
 		AccType = (UserType)temp;
 #ifdef DEBUG
 		Serial.println(" = known PICC");
@@ -41,10 +119,20 @@ void ICACHE_FLASH_ATTR processUser(File f, String uid, String type)
 
 			if (validL > nowL)
 			{
-				openDoor();
+				if (isPinOK(json))
+				{
+					openDoor();
 #ifdef DEBUG
-				Serial.println(" have access");
+					Serial.println(" have access");
 #endif
+				}
+				else
+				{
+					AccType = Denied;
+#ifdef DEBUG
+					Serial.println(" no access");
+#endif
+				}
 			}
 			else
 			{
@@ -57,11 +145,21 @@ void ICACHE_FLASH_ATTR processUser(File f, String uid, String type)
 		}
 		else if (AccType == Admin)
 		{
-			doEnableWifi = true;
-			openDoor();
+			if (isPinOK(json))
+			{
+				doEnableWifi = true;
+				openDoor();
 #ifdef DEBUG
-			Serial.println(" have admin access, enable wifi");
+				Serial.println(" have admin access, enable wifi");
 #endif
+			}
+			else
+			{
+				AccType = Denied;
+#ifdef DEBUG
+				Serial.println(" no access");
+#endif
+			}
 		}
 		else
 		{
