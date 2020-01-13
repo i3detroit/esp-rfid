@@ -1,3 +1,163 @@
+enum UserType
+{
+	Disabled = 0,
+	Always = 1,
+	Expired = 2,
+	Admin = 99,
+	Denied = 127
+};
+
+void ICACHE_FLASH_ATTR openDoor()
+{
+	activateRelay = true;
+	ws.textAll("{\"command\":\"giveAccess\"}");
+}
+
+void ICACHE_FLASH_ATTR processUser(File f, String uid, String type)
+{
+	UserType AccType = Disabled;
+	size_t size = f.size();
+	std::unique_ptr<char[]> buf(new char[size]);
+	f.readBytes(buf.get(), size);
+	DynamicJsonBuffer jsonBuffer;
+	JsonObject &json = jsonBuffer.parseObject(buf.get());
+	if (json.success())
+	{
+		String username = json["user"];
+		int temp =  json["acctype"];
+		AccType = (UserType)temp;
+#ifdef DEBUG
+		Serial.println(" = known PICC");
+		Serial.print("[ INFO ] User Name: ");
+		if (username == "undefined")
+			Serial.print(uid);
+		else
+			Serial.print(username);
+#endif
+		if (AccType == Always)
+		{
+			unsigned long validL = json["validuntil"];
+			unsigned long nowL = now();
+
+			if (validL > nowL)
+			{
+				openDoor();
+#ifdef DEBUG
+				Serial.println(" have access");
+#endif
+			}
+			else
+			{
+#ifdef DEBUG
+				Serial.println(" expired");
+#endif
+				AccType = Expired;
+				;
+			}
+		}
+		else if (AccType == Admin)
+		{
+			doEnableWifi = true;
+			openDoor();
+#ifdef DEBUG
+			Serial.println(" have admin access, enable wifi");
+#endif
+		}
+		else
+		{
+#ifdef DEBUG
+			Serial.println(" does not have access");
+#endif
+		}
+		writeLatest(uid, username, AccType);
+		DynamicJsonBuffer jsonBuffer2;
+		JsonObject &root = jsonBuffer2.createObject();
+		root["command"] = "piccscan";
+		root["uid"] = uid;
+		root["type"] = type;
+		root["known"] = 1;
+		root["acctype"] = (int)AccType;
+		root["user"] = username;
+		size_t len = root.measureLength();
+		AsyncWebSocketMessageBuffer *buffer = ws.makeBuffer(len);
+		if (buffer)
+		{
+			root.printTo((char *)buffer->get(), len + 1);
+			ws.textAll(buffer);
+		}
+		if (mqttenabled == 1)
+		{
+			String userType = "";
+			switch (AccType)
+			{
+			case Disabled:
+				userType = "Disabled";
+				break;
+			case Expired:
+				userType = "Expired";
+				break;
+			case Always:
+				userType = "Always";
+				break;
+			case Admin:
+				userType = "Admin";
+				break;
+			default:
+				userType = "Denied";
+				AccType = Denied;
+				break;
+			}
+			mqtt_publish_access(now(), (AccType == Denied ? "false" : "true"), userType, username, uid);
+		}
+	}
+	else
+	{
+#ifdef DEBUG
+		Serial.println("");
+		Serial.println(F("[ WARN ] Failed to parse User Data"));
+#endif
+	}
+	f.close();
+}
+
+void ICACHE_FLASH_ATTR processPICC(String uid, String type)
+{
+	String filename = "/P/";
+	filename += uid;
+	File f = SPIFFS.open(filename, "r");
+	if (f)
+	{
+		processUser(f, uid, type);
+	}
+	else
+	{
+		String data = String(uid);
+		data += " " + String(type);
+		writeEvent("WARN", "rfid", "Unknown rfid tag is scanned", data);
+		writeLatest(uid, "Unknown", 98);
+#ifdef DEBUG
+		Serial.println(" = unknown PICC");
+#endif
+		DynamicJsonBuffer jsonBuffer;
+		JsonObject &root = jsonBuffer.createObject();
+		root["command"] = "piccscan";
+		root["uid"] = uid;
+		root["type"] = type;
+		root["known"] = 0;
+		size_t len = root.measureLength();
+		AsyncWebSocketMessageBuffer *buffer = ws.makeBuffer(len);
+		if (buffer)
+		{
+			root.printTo((char *)buffer->get(), len + 1);
+			ws.textAll(buffer);
+		}
+		if (mqttenabled == 1)
+		{
+			mqtt_publish_access(now(), "false", "Denied", "Unknown", uid);
+		}
+	}
+}
+
 void ICACHE_FLASH_ATTR rfidloop()
 {
 	String uid = "";
@@ -76,7 +236,6 @@ void ICACHE_FLASH_ATTR rfidloop()
 			delay(50);
 			return;
 		}
-
 	}
 	else if (readertype > 2)
 	{
@@ -204,135 +363,7 @@ void ICACHE_FLASH_ATTR rfidloop()
 		return;
 	}
 #endif
-	int AccType = 0;
-	String filename = "/P/";
-	filename += uid;
-	File f = SPIFFS.open(filename, "r");
-	if (f)
-	{
-		size_t size = f.size();
-		std::unique_ptr<char[]> buf(new char[size]);
-		f.readBytes(buf.get(), size);
-		DynamicJsonBuffer jsonBuffer;
-		JsonObject &json = jsonBuffer.parseObject(buf.get());
-		if (json.success())
-		{
-			String username = json["user"];
-			AccType = json["acctype"];
-#ifdef DEBUG
-			Serial.println(" = known PICC");
-			Serial.print("[ INFO ] User Name: ");
-			if (username == "undefined")
-				Serial.print(uid);
-			else
-				Serial.print(username);
-#endif
-			if (AccType == 1)
-			{
-				unsigned long validL = json["validuntil"];
-				unsigned long nowL = now();
-
-				if (validL > nowL)
-				{
-					activateRelay = true;
-					ws.textAll("{\"command\":\"giveAccess\"}");
-#ifdef DEBUG
-					Serial.println(" have access");
-#endif
-					if (mqttenabled == 1)
-					{
-						mqtt_publish_access(now(), "true", "Always", username, uid);
-					}
-				}
-
-				else
-				{
-#ifdef DEBUG
-					Serial.println(" expired");
-#endif
-					if (mqttenabled == 1)
-					{
-						mqtt_publish_access(now(), "true", "Expired", username, uid);
-					}
-					AccType = 2;
-				}
-			}
-			else if (AccType == 99)
-			{
-				doEnableWifi = true;
-				activateRelay = true;
-				ws.textAll("{\"command\":\"giveAccess\"}");
-#ifdef DEBUG
-				Serial.println(" have admin access, enable wifi");
-#endif
-				if (mqttenabled == 1)
-				{
-					mqtt_publish_access(now(), "true", "Admin", username, uid);
-				}
-			}
-			else
-			{
-#ifdef DEBUG
-				Serial.println(" does not have access");
-#endif
-				if (mqttenabled == 1)
-				{
-					mqtt_publish_access(now(), "true", "Disabled", username, uid);
-				}
-			}
-			writeLatest(uid, username, AccType);
-			DynamicJsonBuffer jsonBuffer2;
-			JsonObject &root = jsonBuffer2.createObject();
-			root["command"] = "piccscan";
-			root["uid"] = uid;
-			root["type"] = type;
-			root["known"] = 1;
-			root["acctype"] = AccType;
-			root["user"] = username;
-			size_t len = root.measureLength();
-			AsyncWebSocketMessageBuffer *buffer = ws.makeBuffer(len);
-			if (buffer)
-			{
-				root.printTo((char *)buffer->get(), len + 1);
-				ws.textAll(buffer);
-			}
-		}
-		else
-		{
-#ifdef DEBUG
-			Serial.println("");
-			Serial.println(F("[ WARN ] Failed to parse User Data"));
-#endif
-		}
-		f.close();
-	}
-	else
-	{
-		String data = String(uid);
-		data += " " + String(type);
-		writeEvent("WARN", "rfid", "Unknown rfid tag is scanned", data);
-		writeLatest(uid, "Unknown", 98);
-#ifdef DEBUG
-		Serial.println(" = unknown PICC");
-#endif
-		DynamicJsonBuffer jsonBuffer;
-		JsonObject &root = jsonBuffer.createObject();
-		root["command"] = "piccscan";
-		root["uid"] = uid;
-		root["type"] = type;
-		root["known"] = 0;
-		size_t len = root.measureLength();
-		AsyncWebSocketMessageBuffer *buffer = ws.makeBuffer(len);
-		if (buffer)
-		{
-			root.printTo((char *)buffer->get(), len + 1);
-			ws.textAll(buffer);
-		}
-		if (mqttenabled == 1)
-		{
-			mqtt_publish_access(now(), "false", "Denied", "Unknown", uid);
-		}
-	}
+	processPICC(uid, type);
 }
 
 #ifndef OFFICIALBOARD
