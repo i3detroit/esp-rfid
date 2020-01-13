@@ -794,6 +794,12 @@
                             <input type="date" class="form-control" id="validuntil" name="validuntil" value="2038-01-01" placeholder="Valid Until" required>
                         </div>
                     </div>
+                    <div class="form-group">
+                        <label for="pin" class="col-sm-3 control-label">2FA PIN (4-digit)</label>
+                        <div class="col-sm-9">
+                            <input type="text" pattern="\d{4}$" maxlength="4" class="form-control" id="pin" name="pin" placeholder="2FA PIN">
+                        </div>
+                    </div>
                 </div>
                 <div class="modal-footer">
                     <button type="submit" class="btn btn-primary">Save changes</button>
