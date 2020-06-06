@@ -30,6 +30,7 @@ void ICACHE_FLASH_ATTR sendUserList(int page, AsyncWebSocketClient *client) {
 			}
 		}
 		i++;
+		ESP.wdtFeed();
 	}
 	float pages = i / 15.0;
 	root["haspages"] = ceil(pages);

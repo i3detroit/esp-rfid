@@ -155,6 +155,7 @@ void ICACHE_FLASH_ATTR getUserList(int todo) {
 					String mqttBuffer;
 					json.printTo(mqttBuffer);
 					mqttClient.publish(stopic.c_str(), 0, false, mqttBuffer.c_str());
+					ESP.wdtFeed();
 					#ifdef DEBUG
 						Serial.print("[ INFO ] Mqtt Publish:");
 						Serial.println(mqttBuffer);

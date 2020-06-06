@@ -85,6 +85,7 @@ void ICACHE_FLASH_ATTR procMsg(AsyncWebSocketClient *client, size_t sz)
 	}
 	else if (strcmp(command, "userfile") == 0)
 	{
+		ESP.wdtFeed();
 		const char *uid = root["uid"];
 		String filename = "/P/";
 		filename += uid;
@@ -97,6 +98,11 @@ void ICACHE_FLASH_ATTR procMsg(AsyncWebSocketClient *client, size_t sz)
 		}
 		f.close();
 		ws.textAll("{\"command\":\"result\",\"resultof\":\"userfile\",\"result\": true}");
+	#ifdef DEBUG
+		Serial.print(F("[ INFO ] User stored in the SPIFFS ("));
+		Serial.print(uid);
+		Serial.println(F(")"));
+	#endif
 	}
 	else if (strcmp(command, "testrelay") == 0)
 	{
