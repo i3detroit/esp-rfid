@@ -11,7 +11,7 @@ struct MqttMessage {
 	MqttMessage *nextMessage = NULL;
 };
 
-MqttMessage *messageQueue = NULL;
+MqttMessage *mqttMessageQueue = NULL;
 
 void connectToMqtt()
 {
@@ -450,10 +450,10 @@ void onMqttMessage(char *topic, char *payload, AsyncMqttClientMessageProperties 
 	}
 	strlcpy(incomingMessage->serializedMessage, mqttBuffer, sizeof(mqttBuffer));
 
-	MqttMessage* lastMessage = messageQueue;
+	MqttMessage* lastMessage = mqttMessageQueue;
 	if(lastMessage == NULL)
 	{
-		messageQueue = incomingMessage;
+		mqttMessageQueue = incomingMessage;
 	}
 	else {
 		while(lastMessage->nextMessage != NULL)
@@ -667,9 +667,10 @@ void onMqttConnect(bool sessionPresent)
 
 void processMqttQueue()
 {
-	while(messageQueue != NULL) {
-		MqttMessage *messageToProcess = messageQueue;
-		messageQueue = messageToProcess->nextMessage;
+	while (mqttMessageQueue != NULL)
+	{
+		MqttMessage *messageToProcess = mqttMessageQueue;
+		mqttMessageQueue = messageToProcess->nextMessage;
 		processMqttMessage(messageToProcess);
 	}
 }
